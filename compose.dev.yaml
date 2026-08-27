@@ -1,0 +1,50 @@
+# Milestone 10: development override with source bind mounts.
+# Use with: docker compose -f compose.yaml -f compose.dev.yaml up
+services:
+  frontend:
+    # Milestone 10: dev mode runs Vite from the Node builder stage.
+    build:
+      context: ./frontend
+      target: builder
+    image: dockyard-frontend-dev:dev
+    user: root
+    command: sh -c "npm install && npm run dev"
+    environment:
+      VITE_API_BASE_URL: http://localhost:${BACKEND_HOST_PORT:-8080}
+    ports: !override
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
+    volumes:
+      # Milestone 10: bind mount source code for fast frontend edits.
+      - ./frontend:/app
+      # Milestone 10: keep container dependencies separate from laptop files.
+      - frontend-node-modules:/app/node_modules
+
+  backend:
+    # Milestone 10: dev mode runs directly from mounted source.
+    image: dockyard-api-dev:dev
+    user: root
+    command: sh -c "npm install && npm run dev"
+    volumes:
+      # Milestone 10: bind mount source code for fast backend edits.
+      - ./backend:/app
+      # Milestone 10: keep container dependencies separate from laptop files.
+      - backend-node-modules:/app/node_modules
+
+  worker:
+    # Milestone 10: worker also uses mounted backend source in dev mode.
+    image: dockyard-worker-dev:dev
+    user: root
+    command: sh -c "npm install && npm run worker:dev"
+    volumes:
+      - ./backend:/app
+      - backend-node-modules:/app/node_modules
+
+  postgres:
+    # Milestone 10: PostgreSQL is published only in dev mode for local tools.
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+
+volumes:
+  # Milestone 10: dependency volumes used only by dev bind-mount mode.
+  backend-node-modules:
+  frontend-node-modules:

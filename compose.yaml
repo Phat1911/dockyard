@@ -1,0 +1,70 @@
+# Milestone 3: base Compose skeleton.
+# Milestone 4: config comes from .env or the safe defaults below.
+# Compose starts a group of containers on one Docker network.
+services:
+  frontend:
+    build:
+      context: ./frontend
+      target: runtime
+    image: dockyard-frontend:dev
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:80"
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      target: api
+    image: dockyard-api:dev
+    environment:
+      HOST: ${BACKEND_HOST:-0.0.0.0}
+      PORT: ${BACKEND_PORT:-8080}
+      WORKER_HEARTBEAT_STALE_AFTER_MS: ${WORKER_HEARTBEAT_STALE_AFTER_MS:-30000}
+      DATABASE_URL: ${DATABASE_URL:-postgres://dockyard:dockyard_dev_password@postgres:5432/dockyard}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    ports:
+      - "${BACKEND_HOST_PORT:-8080}:${BACKEND_PORT:-8080}"
+
+  worker:
+    build:
+      context: ./backend
+      target: worker
+    image: dockyard-worker:dev
+    environment:
+      WORKER_ID: ${WORKER_ID:-dockyard-worker-1}
+      WORKER_HEARTBEAT_INTERVAL_MS: ${WORKER_HEARTBEAT_INTERVAL_MS:-10000}
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-3000}
+      DEPLOYMENT_STEP_DELAY_MS: ${DEPLOYMENT_STEP_DELAY_MS:-1000}
+      DATABASE_URL: ${DATABASE_URL:-postgres://dockyard:dockyard_dev_password@postgres:5432/dockyard}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      - backend
+      - postgres
+      - redis
+
+  postgres:
+    # Milestone 5: PostgreSQL keeps database files in a named Docker volume.
+    # Replacing the container will not erase this volume.
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dockyard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dockyard_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-dockyard}
+    volumes:
+      # Milestone 5: init SQL runs only when the Postgres volume is brand new.
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+
+  redis:
+    # Milestone 6: Redis is temporary queue/cache state.
+    # It has no volume and no published host port.
+    image: redis:7-alpine
+
+networks:
+  default:
+    name: dockyard_default
+
+volumes:
+  # Milestone 5: durable PostgreSQL state for deployments, logs, and heartbeats.
+  postgres-data:

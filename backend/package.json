@@ -1,0 +1,19 @@
+{
+  "name": "dockyard-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "worker": "node src/worker.js",
+    "worker:dev": "node --watch src/worker.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "fastify": "^5.2.1",
+    "pg": "^8.23.0",
+    "redis": "^6.2.1"
+  }
+}

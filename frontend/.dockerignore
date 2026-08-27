@@ -1,0 +1,13 @@
+# Milestone 3: keep the frontend build context small and predictable.
+# Milestone 4: do not send local config/secrets into the Docker build context.
+node_modules
+npm-debug.log*
+.env
+.env.*
+dist
+coverage
+build
+*.log
+.git
+.gitignore
+Dockerfile.*
