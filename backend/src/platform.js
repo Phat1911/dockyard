@@ -1,4 +1,5 @@
 import { describeWorkerHeartbeat, readWorkerHeartbeat } from "./heartbeat.js";
+import { checkPostgres, checkRedis } from "./health.js";
 
 // Milestone 9: platform status uses honest app-level checks, not Docker Engine inspection.
 export async function readPlatformServices({
@@ -47,40 +48,4 @@ export async function readPlatformServices({
       },
     ],
   };
-}
-
-async function checkPostgres(pool) {
-  try {
-    await pool.query("SELECT 1");
-
-    return {
-      reachable: true,
-      note: "PostgreSQL answered a simple query.",
-    };
-  } catch (error) {
-    return {
-      reachable: false,
-      note: error.message,
-    };
-  }
-}
-
-async function checkRedis(client) {
-  try {
-    if (client.isOpen === false && typeof client.connect === "function") {
-      await client.connect();
-    }
-
-    await client.ping();
-
-    return {
-      reachable: true,
-      note: "Redis answered PING.",
-    };
-  } catch (error) {
-    return {
-      reachable: false,
-      note: error.message,
-    };
-  }
 }

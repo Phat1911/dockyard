@@ -28,6 +28,20 @@ nginx:alpine already has Nginx installed.
 
 That is what makes the Dockerfile multi-stage.
 
+Milestone 12 frontend example:
+
+```dockerfile
+FROM node:22-slim AS builder
+FROM nginx:alpine AS runtime
+```
+
+Simple meaning:
+
+```text
+Build the frontend with Node,
+then run the frontend with Nginx.
+```
+
 ## WORKDIR
 
 ```dockerfile
@@ -60,6 +74,7 @@ copies files into:
 COPY package*.json ./
 COPY src ./src
 COPY --from=deps /app/node_modules ./node_modules
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 ```
 
 `COPY` puts files into the image at build-time.
@@ -95,6 +110,27 @@ means:
 copy node_modules from the deps build stage
 into the current stage
 ```
+
+Frontend runtime example:
+
+```dockerfile
+COPY --from=builder /app/dist /usr/share/nginx/html
+```
+
+Simple meaning:
+
+```text
+copy only the built frontend files from the builder stage
+into the Nginx folder that serves web pages
+```
+
+Milestone 12 also copies:
+
+```dockerfile
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+```
+
+That gives Nginx a small Dockyard-specific config, including the container port it listens on.
 
 ## RUN
 
@@ -153,6 +189,7 @@ Those results become part of the image layer.
 
 ```dockerfile
 ENV NODE_ENV=production
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ```
 
 `ENV` sets an environment variable inside the image/container.
@@ -179,10 +216,56 @@ Do not put secrets in ENV inside a Dockerfile.
 
 Secrets should come from run-time config, like Compose `.env`.
 
+## ARG
+
+```dockerfile
+ARG VITE_API_BASE_URL=http://localhost:8080
+```
+
+`ARG` defines a build-time variable.
+
+Build-time means:
+
+```text
+while Docker is building the image
+```
+
+Milestone 17 uses this for the frontend because Vite bakes frontend environment values into the compiled browser files during `npm run build`.
+
+Simple meaning:
+
+```text
+normal frontend build -> call http://localhost:8080
+proxy frontend build  -> call /api
+```
+
+Proxy mode tags that image separately as:
+
+```text
+dockyard-frontend-proxy:dev
+```
+
+That avoids mixing the normal frontend image with the proxy frontend image.
+
+Compose passes the proxy value like this:
+
+```yaml
+args:
+  VITE_API_BASE_URL: /api
+```
+
+Important:
+
+```text
+Do not use ARG for secrets.
+Build arguments can become visible in image build history or compiled output.
+```
+
 ## USER
 
 ```dockerfile
 USER node
+USER nginx
 ```
 
 `USER` chooses which Linux user runs later commands and the final container process.
@@ -198,6 +281,12 @@ Why this matters:
 ```text
 root has more power inside the container.
 node is less powerful and safer for app runtime.
+```
+
+For the frontend runtime:
+
+```text
+nginx is less powerful than root and is enough to serve static files
 ```
 
 ## EXPOSE
@@ -222,12 +311,26 @@ backend listens on container port 8080
 frontend Nginx listens on container port 80
 ```
 
+Milestone 12 changes the frontend runtime to:
+
+```dockerfile
+EXPOSE 8080
+```
+
+Simple meaning:
+
+```text
+frontend Nginx listens on container port 8080
+```
+
+This makes non-root Nginx practical. On Linux, low ports like `80` usually require extra privileges. Port `8080` avoids that.
+
 Compose publishes ports with:
 
 ```yaml
 ports:
   - "8080:8080"
-  - "3000:80"
+  - "3000:8080"
 ```
 
 ## CMD
@@ -279,6 +382,7 @@ FROM
 WORKDIR
 COPY
 RUN
+ARG
 ENV
 USER
 EXPOSE
@@ -336,3 +440,13 @@ Build stages:
 builder
 runtime
 ```
+
+Milestone 12 invariant:
+
+```text
+The runtime frontend image contains built static assets,
+not the full development toolchain or local secrets.
+```
+
+The builder stage can use Node, npm, Vite, source files, and dependencies.
+The runtime stage should serve the compiled `dist` output with Nginx.

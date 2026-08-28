@@ -350,6 +350,12 @@ Review deeply:
 
 - Difference between frontend dev server and Nginx static runtime.
 - Why builder dependencies should not ship in runtime image.
+  - Install dependencies in container itself directly: 
+    + Root priviledge is needed to install dependencies, but we just use root in build time, should not in run time.
+    + So slow.
+  - Bind mount dependencies from volume into container:
+    + Because by convention / practical, image contains everything it need to run. Now frontend runtime image no need it, it just need 
+    Nginx -- built static files from dist/.
 - Why `EXPOSE` documents a port but does not publish it by itself.
 
 Verify:
@@ -366,7 +372,7 @@ docker history dockyard-frontend:dev
 
 Invariant / property to preserve:
 
-- A service must not be reported healthy unless the dependency checks that define its usable behavior pass.
+- Only report a service as healthy when it can actually do its required job.
 
 Build:
 

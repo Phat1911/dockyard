@@ -18,6 +18,7 @@
 
 - In your implementation, don't forget to mark (comment) what is milestone this code relate.
 - Alway update DockerfileCMD.md and COMMANDS.md file if there are new dockerfile/docker command used in your implementation but is still not update on those two files yet.
+- Update current status section in README.md for progression.
 - Keep app code simple; Docker learning is the main goal.
 - Prefer Fastify for the backend API unless there is a clear reason to switch.
 - Backend and worker share one backend Dockerfile with separate `api` and `worker` targets.

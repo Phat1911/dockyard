@@ -1,0 +1,87 @@
+# Milestone 17: Nginx reverse proxy mode.
+# Use with: docker compose -f compose.yaml -f compose.proxy.yaml up -d --build
+#
+# Beginner note:
+# A published port is a doorway from your laptop into Docker.
+# In proxy mode, Nginx is the only public doorway. It forwards / to frontend
+# and /api to backend by using Compose service names on the Docker network.
+#
+# Milestone 18:
+# A Docker network is like a room where containers can find each other by
+# service name. Proxy mode now has a public room and a private room.
+services:
+  nginx:
+    image: nginx:alpine
+    # Milestone 17: Nginx is the public gateway for browser traffic.
+    cpus: 0.25
+    mem_limit: 128m
+    # Milestone 19: restart the gateway only for real process exits, with a retry cap.
+    restart: "on-failure:3"
+    ports:
+      - "${NGINX_HOST_PORT:-3000}:8080"
+    volumes:
+      # Milestone 17: read-only proxy rules, not Docker Engine access.
+      - ./nginx/reverse-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/health >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      # Milestone 18: Nginx can reach frontend/backend, not PostgreSQL/Redis.
+      - public
+
+  frontend:
+    # Milestone 17: in proxy mode, frontend calls the backend through /api.
+    image: dockyard-frontend-proxy:dev
+    build:
+      context: ./frontend
+      target: runtime
+      args:
+        VITE_API_BASE_URL: /api
+    ports: !override []
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      # Milestone 18: frontend stays on the public side only.
+      - public
+
+  backend:
+    # Milestone 17: backend stays reachable inside Docker, but is no longer
+    # published directly to localhost in proxy mode.
+    ports: !override []
+    networks:
+      # Milestone 18: backend bridges public HTTP traffic to private data services.
+      - public
+      - private
+
+  postgres:
+    networks:
+      # Milestone 18: PostgreSQL is private database state, not public traffic.
+      - private
+
+  redis:
+    networks:
+      # Milestone 18: Redis is private temporary queue/cache state.
+      - private
+
+  worker:
+    networks:
+      # Milestone 18: worker is a private background process with no public port.
+      - private
+
+networks:
+  public:
+    name: dockyard_public
+  private:
+    name: dockyard_private

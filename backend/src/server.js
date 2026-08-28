@@ -8,6 +8,12 @@ import {
   readDeploymentWithLogs,
 } from "./deployments.js";
 import { describeWorkerHeartbeat, readWorkerHeartbeat } from "./heartbeat.js";
+import {
+  checkPostgres,
+  checkRedis,
+  readBackendHealth,
+  waitForDependencies,
+} from "./health.js";
 import { readPlatformServices } from "./platform.js";
 import {
   closeQueueClient,
@@ -43,12 +49,15 @@ export function buildServer({
     await closeDatabasePool(databasePool);
   });
 
-  // Milestone 1: basic backend health endpoint before database checks exist.
-  app.get("/health", async () => ({
-    status: "ok",
-    service: "backend",
-    milestone: "1",
-  }));
+  // Milestone 13: backend is healthy only when PostgreSQL and Redis answer.
+  app.get("/health", async (request, reply) => {
+    const health = await readBackendHealth({
+      databasePool,
+      queueClient,
+    });
+
+    return reply.code(health.status === "healthy" ? 200 : 503).send(health);
+  });
 
   app.get("/", async () => ({
     name: "Dockyard backend",
@@ -167,8 +176,17 @@ const app = buildServer();
 
 async function start() {
   try {
+    // Milestone 13: Compose helps startup order, and the app still retries.
+    await waitForDependencies({
+      label: "backend",
+      checks: [
+        () => checkPostgres(app.db),
+        () => checkRedis(app.queue),
+      ],
+      logger: app.log,
+    });
     await app.listen({ host, port });
-    app.log.info({ host, port, milestone: "1" }, "backend started");
+    app.log.info({ host, port, milestone: "13" }, "backend started");
   } catch (error) {
     app.log.error(error, "backend failed to start");
     process.exit(1);

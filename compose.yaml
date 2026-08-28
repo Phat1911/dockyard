@@ -3,20 +3,40 @@
 # Compose starts a group of containers on one Docker network.
 services:
   frontend:
+    # Milestone 12: runtime frontend image serves static assets from Nginx.
     build:
       context: ./frontend
       target: runtime
     image: dockyard-frontend:dev
+    # Milestone 14: resource limits make frontend usage observable and bounded.
+    cpus: 0.25
+    mem_limit: 128m
+    # Milestone 19: retry real process crashes a few times without hiding loops forever.
+    restart: "on-failure:3"
     ports:
-      - "${FRONTEND_HOST_PORT:-3000}:80"
+      - "${FRONTEND_HOST_PORT:-3000}:8080"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    # Milestone 17: frontend health is used by reverse proxy mode before
+    # Nginx starts forwarding browser traffic to it.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   backend:
     build:
       context: ./backend
       target: api
     image: dockyard-api:dev
+    # Milestone 14: API has a small but explicit CPU and memory boundary.
+    cpus: 0.50
+    mem_limit: 256m
+    # Milestone 19: restart only after the API process exits with an error.
+    restart: "on-failure:3"
     environment:
       HOST: ${BACKEND_HOST:-0.0.0.0}
       PORT: ${BACKEND_PORT:-8080}
@@ -25,28 +45,59 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     ports:
       - "${BACKEND_HOST_PORT:-8080}:${BACKEND_PORT:-8080}"
+    # Milestone 13: Docker health follows the backend's real dependency checks.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 8080) + '/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   worker:
     build:
       context: ./backend
       target: worker
     image: dockyard-worker:dev
+    # Milestone 14: worker can show CPU pressure without taking the whole laptop.
+    cpus: 0.50
+    mem_limit: 256m
+    # Milestone 19: a bounded policy makes worker crash loops visible in logs/status.
+    restart: "on-failure:3"
     environment:
       WORKER_ID: ${WORKER_ID:-dockyard-worker-1}
       WORKER_HEARTBEAT_INTERVAL_MS: ${WORKER_HEARTBEAT_INTERVAL_MS:-10000}
       WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-3000}
       DEPLOYMENT_STEP_DELAY_MS: ${DEPLOYMENT_STEP_DELAY_MS:-1000}
+      WORKER_STRESS_MODE: ${WORKER_STRESS_MODE:-off}
+      WORKER_STRESS_DURATION_MS: ${WORKER_STRESS_DURATION_MS:-500}
       DATABASE_URL: ${DATABASE_URL:-postgres://dockyard:dockyard_dev_password@postgres:5432/dockyard}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     depends_on:
-      - backend
-      - postgres
-      - redis
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   postgres:
     # Milestone 5: PostgreSQL keeps database files in a named Docker volume.
     # Replacing the container will not erase this volume.
     image: postgres:16-alpine
+    # Milestone 14: database gets the largest memory budget because it stores data.
+    cpus: 0.75
+    mem_limit: 512m
+    # Milestone 19: restart on crashes, but do not loop forever during debugging.
+    restart: "on-failure:3"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-dockyard}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dockyard_dev_password}
@@ -55,11 +106,30 @@ services:
       # Milestone 5: init SQL runs only when the Postgres volume is brand new.
       - postgres-data:/var/lib/postgresql/data
       - ./backend/db/init:/docker-entrypoint-initdb.d:ro
+    # Milestone 13: PostgreSQL is healthy only after it accepts connections.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     # Milestone 6: Redis is temporary queue/cache state.
     # It has no volume and no published host port.
     image: redis:7-alpine
+    # Milestone 14: Redis is memory-sensitive, so its cache boundary is explicit.
+    cpus: 0.25
+    mem_limit: 128m
+    # Milestone 19: bounded restarts keep temporary Redis failures observable.
+    restart: "on-failure:3"
+    # Milestone 13: Redis is healthy only when it answers PING.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
 networks:
   default:

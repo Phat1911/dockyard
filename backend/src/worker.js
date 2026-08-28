@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { closeDatabasePool, createDatabasePool } from "./db.js";
 import { runFakeDeploymentWorkflow } from "./deployments.js";
+import { checkPostgres, checkRedis, waitForDependencies } from "./health.js";
 import { writeWorkerHeartbeat } from "./heartbeat.js";
 import {
   closeQueueClient,
@@ -13,6 +14,9 @@ const heartbeatIntervalMs = Number(
   process.env.WORKER_HEARTBEAT_INTERVAL_MS || 10000
 );
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS || 3000);
+const workerStressMode = process.env.WORKER_STRESS_MODE || "off";
+const maxWorkerStressDurationMs = 5000;
+const workerStressDurationMs = getWorkerStressDurationMs();
 
 function logWorker(message, extra = {}) {
   console.log(
@@ -31,12 +35,18 @@ export async function runWorkerOnce({
   databasePool,
   queueClient,
   workflowWait,
+  stressMode = workerStressMode,
+  stressDurationMs = workerStressDurationMs,
 } = {}) {
   const heartbeat = await writeWorkerHeartbeat(
     databasePool,
     workerId,
     "worker heartbeat from Milestone 8"
   );
+
+  // Milestone 14: optional CPU stress makes resource limits visible in docker stats.
+  const stress = runWorkerStress({ mode: stressMode, durationMs: stressDurationMs });
+
   const job = await dequeueDeploymentJob(queueClient);
   let workflow = null;
 
@@ -48,9 +58,48 @@ export async function runWorkerOnce({
 
   return {
     heartbeat,
+    stress,
     job,
     workflow,
   };
+}
+
+export function runWorkerStress({ mode = "off", durationMs = 500 } = {}) {
+  if (mode !== "cpu") {
+    return {
+      mode: "off",
+      iterations: 0,
+    };
+  }
+
+  const boundedDurationMs = Math.min(
+    Math.max(0, Number(durationMs) || 0),
+    maxWorkerStressDurationMs
+  );
+  const deadline = Date.now() + boundedDurationMs;
+  let iterations = 0;
+  let value = 0;
+
+  while (Date.now() < deadline) {
+    value = Math.sqrt(value + iterations + 1);
+    iterations += 1;
+  }
+
+  return {
+    mode: "cpu",
+    durationMs: boundedDurationMs,
+    iterations,
+  };
+}
+
+export function getWorkerStressDurationMs(env = process.env) {
+  const parsedDurationMs = Number(env.WORKER_STRESS_DURATION_MS || 500);
+
+  if (!Number.isFinite(parsedDurationMs)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(0, parsedDurationMs), maxWorkerStressDurationMs);
 }
 
 export async function startWorker({
@@ -60,6 +109,19 @@ export async function startWorker({
   let stopped = false;
   let ticking = false;
 
+  // Milestone 13: worker retries dependency checks before its first tick.
+  await waitForDependencies({
+    label: "worker",
+    checks: [
+      () => checkPostgres(databasePool),
+      () => checkRedis(queueClient),
+    ],
+    logger: {
+      info: (data, message) => logWorker(message, data),
+      warn: (data, message) => logWorker(message, data),
+    },
+  });
+
   async function tick() {
     if (ticking) {
       return;
@@ -68,12 +130,12 @@ export async function startWorker({
     ticking = true;
 
     try {
-      const { job } = await runWorkerOnce({ databasePool, queueClient });
+      const { job, stress } = await runWorkerOnce({ databasePool, queueClient });
 
       if (job) {
-        logWorker("processed Redis deployment job", { job });
+        logWorker("processed Redis deployment job", { job, stress });
       } else {
-        logWorker("heartbeat written; no queued job found");
+        logWorker("heartbeat written; no queued job found", { stress });
       }
     } catch (error) {
       console.error(

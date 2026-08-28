@@ -35,6 +35,7 @@ Compose reads the `build.target` values in `compose.yaml`:
 ```text
 backend service -> backend Dockerfile api target
 worker service  -> backend Dockerfile worker target
+frontend service -> frontend Dockerfile runtime target
 ```
 
 ## Build Backend API Image Directly
@@ -73,6 +74,32 @@ Shows the image layers that make up `dockyard-api:dev`.
 
 For milestone 11, use this to notice that dependency install and source copy are separate layers.
 
+## Build Frontend Runtime Image Directly
+
+```powershell
+docker build -t dockyard-frontend:dev ./frontend
+```
+
+Milestone 12 builds the frontend runtime image.
+
+Simple meaning:
+
+```text
+Use Node.js during the build,
+copy only the built dist files into Nginx,
+save the result as dockyard-frontend:dev.
+```
+
+## Inspect Frontend Image History
+
+```powershell
+docker history dockyard-frontend:dev
+```
+
+Shows the image layers that make up `dockyard-frontend:dev`.
+
+For milestone 12, use this to check the runtime image is based on Nginx and receives built static assets from the builder stage.
+
 ## Start Containers
 
 ```powershell
@@ -83,6 +110,35 @@ Starts the Compose containers in the background.
 
 This uses only `compose.yaml`, which is the runtime-like base mode.
 In this mode, app containers run from built image contents, not source bind mounts.
+
+Milestone 19 adds bounded restart policies in this base mode:
+
+```text
+restart: "on-failure:3"
+```
+
+Simple meaning:
+
+```text
+if the service process crashes, Docker retries it
+after a few failed retries, the failure stays visible
+```
+
+Milestone 15 uses this command to verify the app works without `compose.dev.yaml`.
+
+Simple meaning:
+
+```text
+no ./backend:/app
+no ./frontend:/app
+no dev node_modules volumes
+```
+
+If you edit source code after starting runtime-like mode, rebuild before expecting the container to see it:
+
+```powershell
+docker compose up -d --build
+```
 
 ## Check Dev Compose Config
 
@@ -132,6 +188,8 @@ frontend-node-modules -> /app/node_modules
 
 This keeps container-installed packages separate from your source bind mounts.
 
+This is intentionally different from runtime-like mode. Dev mode favors fast editing; runtime-like mode favors checking what the built images actually contain.
+
 The `--build` flag tells Compose:
 
 ```text
@@ -139,6 +197,163 @@ build the dev images before starting containers
 ```
 
 Milestone 10 uses separate dev images for the bind-mount workflow, so `--build` keeps Docker from reusing an older runtime image by accident.
+
+## Check Proxy Compose Config
+
+```powershell
+docker compose -f compose.yaml -f compose.proxy.yaml config
+```
+
+Milestones 17 and 18 read the base Compose file, then layer the proxy override on top.
+
+Simple meaning:
+
+```text
+compose.yaml says how the normal stack works
+compose.proxy.yaml changes the public doorway to Nginx
+```
+
+In proxy mode after milestone 18:
+
+```text
+nginx publishes localhost:3000 and joins the public network
+frontend has no direct host port and joins the public network
+backend has no direct host port and joins public + private networks
+postgres, redis, and worker join the private network
+```
+
+Nginx can still reach `frontend:8080` and `backend:8080` because those services share the public network. Nginx does not share the private network with PostgreSQL or Redis.
+
+## Show Docker Networks
+
+```powershell
+docker network ls
+```
+
+Shows Docker networks on your machine.
+
+Milestone 18 splits proxy mode into:
+
+```text
+dockyard_public
+dockyard_private
+```
+
+## Inspect Dockyard Network
+
+```powershell
+docker network inspect dockyard_public
+docker network inspect dockyard_private
+```
+
+Shows which containers are attached to each Dockyard proxy-mode network.
+
+Simple meaning:
+
+```text
+dockyard_public  -> nginx, frontend, backend
+dockyard_private -> backend, postgres, redis, worker
+```
+
+## Check Proxy Network Separation
+
+```powershell
+docker compose -f compose.yaml -f compose.proxy.yaml exec nginx getent hosts backend
+docker compose -f compose.yaml -f compose.proxy.yaml exec nginx getent hosts postgres
+docker compose -f compose.yaml -f compose.proxy.yaml exec backend getent hosts postgres
+```
+
+Milestone 18 uses these commands to test service-name discovery from inside containers.
+
+Expected meaning:
+
+```text
+nginx can find backend because both are on dockyard_public
+nginx should not find postgres because nginx is not on dockyard_private
+backend can find postgres because backend is on dockyard_private too
+```
+
+If `getent hosts postgres` from `nginx` returns nothing, that is good for this milestone. It means Nginx is not in the private database room.
+
+## Start Proxy Containers
+
+```powershell
+docker compose -f compose.yaml -f compose.proxy.yaml up -d --build
+```
+
+Starts Dockyard with Nginx as the reverse proxy.
+
+Simple meaning:
+
+```text
+Your browser talks to Nginx.
+Nginx forwards page requests to frontend.
+Nginx forwards /api requests to backend.
+```
+
+Open the dashboard through the proxy:
+
+```text
+http://localhost:3000
+```
+
+Check backend health through the proxy:
+
+```powershell
+Invoke-RestMethod http://localhost:3000/api/health
+```
+
+The old direct backend URL should not be the normal path in proxy mode:
+
+```text
+http://localhost:8080
+```
+
+Milestone 17 removes the backend host port in `compose.proxy.yaml`, so the backend is private to Docker while Nginx remains public.
+
+## Show Proxy Containers
+
+```powershell
+docker compose -f compose.yaml -f compose.proxy.yaml ps
+```
+
+Shows the proxy-mode containers and published ports.
+
+Use this to confirm:
+
+```text
+nginx has a published port
+backend does not show 0.0.0.0:8080->8080
+frontend does not show 0.0.0.0:3000->8080
+```
+
+## Show Proxy Logs
+
+```powershell
+docker compose -f compose.yaml -f compose.proxy.yaml logs --tail=20 nginx
+```
+
+Shows Nginx proxy logs.
+
+For a routing problem, also compare:
+
+```powershell
+docker compose -f compose.yaml -f compose.proxy.yaml logs --tail=20 frontend
+docker compose -f compose.yaml -f compose.proxy.yaml logs --tail=20 backend
+```
+
+Nginx logs show what the public gateway received.
+Frontend and backend logs show what the private services handled.
+
+## Stop Proxy Containers
+
+```powershell
+docker compose -f compose.yaml -f compose.proxy.yaml down
+```
+
+Stops proxy-mode containers while keeping the PostgreSQL named volume.
+
+It does not delete durable database data unless you add `-v`.
 
 ## Stop Dev Containers
 
@@ -158,6 +373,119 @@ docker compose ps
 
 Shows the Dockyard containers and published ports.
 
+Milestone 13 adds health checks, so this command can also show whether services are healthy or unhealthy.
+
+Simple meaning:
+
+```text
+running/started tells you the process exists
+healthy tells you the service passed its readiness check
+```
+
+## Inspect Container Health
+
+```powershell
+docker inspect dockyard-backend-1
+```
+
+Shows detailed container metadata, including health check results.
+
+Useful health paths in the output:
+
+```text
+State.Status
+State.Health.Status
+State.Health.Log
+```
+
+Use the same pattern for PostgreSQL or Redis:
+
+```powershell
+docker inspect dockyard-postgres-1
+docker inspect dockyard-redis-1
+```
+
+Milestone 13 uses health checks so Compose can wait for a service to be useful, not just started.
+
+## Watch Resource Usage
+
+```powershell
+docker stats
+```
+
+Milestone 14 uses this command to show live resource usage for running containers.
+
+Important columns:
+
+```text
+CPU %              current CPU use
+MEM USAGE / LIMIT  current memory use compared to the configured limit
+MEM %              percentage of the memory limit currently used
+```
+
+Example meaning:
+
+```text
+45MiB / 256MiB
+```
+
+The container is using `45MiB` of memory, and Docker will limit it around `256MiB`.
+
+## Inspect Resource Limits
+
+```powershell
+docker inspect dockyard-worker-1
+```
+
+Look for:
+
+```text
+HostConfig.NanoCpus
+HostConfig.Memory
+```
+
+Simple meaning:
+
+```text
+NanoCpus shows the configured CPU boundary.
+Memory shows the configured memory boundary in bytes.
+```
+
+You can inspect the other services the same way:
+
+```powershell
+docker inspect dockyard-frontend-1
+docker inspect dockyard-backend-1
+docker inspect dockyard-postgres-1
+docker inspect dockyard-redis-1
+```
+
+## Enable Worker CPU Stress For Stats
+
+PowerShell:
+
+```powershell
+$env:WORKER_STRESS_MODE="cpu"
+$env:WORKER_STRESS_DURATION_MS="2000"
+docker compose up -d --build worker
+```
+
+This keeps the worker stress mode opt-in.
+
+Simple meaning:
+
+```text
+The worker does a short CPU burst during each tick.
+Then docker stats has something visible to show.
+```
+
+Turn it off again:
+
+```powershell
+$env:WORKER_STRESS_MODE="off"
+docker compose up -d worker
+```
+
 ## Show Docker Volumes
 
 ```powershell
@@ -174,6 +502,22 @@ dockyard_postgres-data
 
 That volume stores the database files outside the PostgreSQL container.
 Deleting only the container should not delete the database records.
+
+## Inspect PostgreSQL Volume
+
+```powershell
+docker volume inspect dockyard_postgres-data
+```
+
+Shows Docker metadata for the PostgreSQL named volume.
+
+Simple meaning:
+
+```text
+Docker can show that the volume exists separately from the postgres container.
+```
+
+Milestone 16 uses this before discussing volume deletion, because deleting a volume is different from deleting a container.
 
 ## Open PostgreSQL Shell
 
@@ -206,6 +550,136 @@ docker compose down
 Stops and removes the Compose containers and network.
 
 It does not remove the PostgreSQL named volume, so durable database data should remain.
+
+## Stop One Service Container
+
+```powershell
+docker compose stop worker
+docker compose stop redis
+docker compose stop postgres
+```
+
+Stops one Compose service container without removing it.
+
+Simple meaning:
+
+```text
+the container process stops
+the container record still exists
+named volumes are kept
+```
+
+Milestone 16 uses this to create controlled failures, such as a stale worker heartbeat or a Redis restart/recreate drill.
+
+Milestone 19 reminder:
+
+```text
+docker compose stop worker
+```
+
+is a manual stop. The `on-failure:3` restart policy is for error exits, not for this intentional stop.
+
+## Manually Restart A Service
+
+```powershell
+docker compose restart worker
+```
+
+Restarts one service container by request.
+
+Simple meaning:
+
+```text
+stop the worker process
+start it again
+keep the PostgreSQL named volume
+```
+
+This is different from an automatic restart policy. Here, you are asking Docker to restart the service. With `restart: "on-failure:3"`, Docker reacts only after the container's main process exits with an error.
+
+## Inspect Restart Policy And Count
+
+```powershell
+docker inspect dockyard-worker-1
+```
+
+Milestone 19 uses this command to see whether Docker restarted a container.
+
+Look for:
+
+```text
+HostConfig.RestartPolicy
+RestartCount
+State.Status
+State.StartedAt
+State.FinishedAt
+State.ExitCode
+```
+
+Simple meaning:
+
+```text
+HostConfig.RestartPolicy -> what Docker is allowed to restart
+RestartCount             -> how many times Docker restarted this container
+State.ExitCode           -> the last process exit code
+```
+
+## Observe A Crash Loop
+
+```powershell
+docker compose logs --tail=50 worker
+docker inspect dockyard-worker-1
+docker compose ps
+```
+
+A crash loop means:
+
+```text
+container starts
+app crashes
+Docker restarts it
+app crashes again
+```
+
+The logs reveal the loop because the same startup and error lines repeat. `docker inspect` reveals it because `RestartCount` increases.
+
+Important distinction:
+
+```text
+restart policy reacts to exited containers
+healthcheck reports whether a running container is usable
+```
+
+So a backend can be:
+
+```text
+Up (unhealthy)
+```
+
+without Docker automatically restarting it. That usually means the process is still alive, but something it needs is broken, such as PostgreSQL, Redis, networking, or the health check command.
+
+## Remove A Stopped Service Container
+
+```powershell
+docker compose rm -f redis
+docker compose rm -f postgres
+```
+
+Removes a stopped Compose service container.
+
+Simple meaning:
+
+```text
+delete the container
+keep Docker named volumes unless you explicitly delete volumes too
+```
+
+Milestone 16 uses this to show an important difference:
+
+```text
+Redis has no named volume, so its temporary queue state can disappear.
+PostgreSQL has a named volume, so deleting only the postgres container should not delete database rows.
+```
 
 ## Stop Containers And Delete Volumes
 
@@ -301,6 +775,7 @@ Expected image names include:
 dockyard-api:dev
 dockyard-worker:dev
 dockyard-frontend:dev
+dockyard-frontend-proxy:dev
 ```
 
 ## Check Backend Through Published Port
@@ -310,6 +785,14 @@ Invoke-RestMethod http://localhost:8080/health
 ```
 
 Calls the backend health endpoint through the published backend port.
+
+Milestone 13 changes this endpoint from a simple "backend process exists" answer into a dependency check:
+
+```text
+backend healthy = backend answers HTTP + PostgreSQL answers + Redis answers
+```
+
+If PostgreSQL or Redis is unreachable, `/health` returns an unhealthy response.
 
 ## Check Worker Status Through Backend
 
@@ -360,6 +843,14 @@ Invoke-WebRequest -UseBasicParsing http://localhost:3000
 
 Checks that the frontend is being served through the published frontend port.
 
+Milestone 12 maps your laptop port to container port `8080`:
+
+```text
+localhost:3000 -> frontend container port 8080
+```
+
+The container uses port `8080` because non-root processes normally cannot listen on low ports like `80`.
+
 ## Important Order
 
 Run this before checking `localhost:8080` or `localhost:3000`:
@@ -369,3 +860,69 @@ docker compose up -d
 ```
 
 Without running containers, the published ports do not have anything to answer.
+
+## Milestone 16 Debugging Exercises
+
+The full guided pack lives in:
+
+```text
+MILESTONE_16_DEBUGGING.md
+```
+
+Milestone 16 uses the same Docker commands from this file, but puts them into controlled break/fix drills.
+
+Simple rule:
+
+```text
+break one thing
+observe it with Docker commands
+fix that one thing
+verify the stack is healthy again
+```
+
+Start clean:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+Main commands used by the exercises:
+
+```powershell
+docker compose ps
+docker compose logs
+docker inspect dockyard-backend-1
+docker inspect dockyard-postgres-1
+docker inspect dockyard-redis-1
+docker volume ls
+docker volume inspect dockyard_postgres-data
+```
+
+Temporary environment-variable breaks:
+
+```powershell
+$env:BACKEND_HOST_PORT="18080"
+$env:DATABASE_URL="postgres://dockyard:dockyard_dev_password@localhost:5432/dockyard"
+```
+
+Undo those temporary values:
+
+```powershell
+Remove-Item Env:BACKEND_HOST_PORT -ErrorAction SilentlyContinue
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+```
+
+Careful PostgreSQL reminder:
+
+```powershell
+docker compose down
+```
+
+stops containers while keeping volumes.
+
+```powershell
+docker compose down -v
+```
+
+stops containers and deletes Compose volumes. In Dockyard, that intentionally deletes the PostgreSQL named volume and resets durable local database data.
