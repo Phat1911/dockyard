@@ -22,6 +22,21 @@ docker compose config
 
 Reads `compose.yaml` and prints the final resolved Compose configuration.
 
+## Check Registry Compose Config
+
+```powershell
+docker compose -f compose.registry.yaml config
+```
+
+Milestone 20 reads only the local registry Compose file.
+
+Simple meaning:
+
+```text
+registry:2 runs a small image-storage service
+localhost:5000 is the published doorway from your laptop to that service
+```
+
 ## Build Images
 
 ```powershell
@@ -777,6 +792,129 @@ dockyard-worker:dev
 dockyard-frontend:dev
 dockyard-frontend-proxy:dev
 ```
+
+## Start Local Registry
+
+```powershell
+docker compose -f compose.registry.yaml up -d
+```
+
+Milestone 20 starts a local Docker registry.
+
+Simple meaning:
+
+```text
+registry = a server that stores built Docker images
+Git repo = source code and file history
+```
+
+The registry service uses:
+
+```text
+registry:2
+```
+
+That means:
+
+```text
+image name = registry
+image tag  = 2
+```
+
+It publishes port `5000`:
+
+```text
+localhost:5000 on your laptop -> port 5000 inside the registry container
+```
+
+That published port matters because `docker tag`, `docker push`, and `docker pull` are run from your laptop's Docker CLI.
+
+## Tag Image For Local Registry
+
+Run this yourself for milestone 20:
+
+```powershell
+docker tag dockyard-api:dev localhost:5000/dockyard-api:milestone-20
+```
+
+Simple meaning:
+
+```text
+Take the existing local image dockyard-api:dev.
+Add another name that points at the local registry.
+```
+
+The new tag has three important parts:
+
+```text
+localhost:5000  -> registry address
+dockyard-api    -> image name inside the registry
+milestone-20    -> version/label
+```
+
+## Push Image To Local Registry
+
+Run this yourself for milestone 20:
+
+```powershell
+docker push localhost:5000/dockyard-api:milestone-20
+```
+
+Simple meaning:
+
+```text
+Upload the tagged image layers into the registry container.
+```
+
+The local registry stores those pushed image blobs in the `dockyard_registry-data` named volume.
+
+## Pull Image From Local Registry
+
+Run this yourself for milestone 20:
+
+```powershell
+docker pull localhost:5000/dockyard-api:milestone-20
+```
+
+Simple meaning:
+
+```text
+Ask Docker to download that image tag from the local registry.
+```
+
+If the image already exists locally, Docker may say the layers already exist. That is still useful: it proves Docker can contact the registry and resolve the tag.
+
+## Show Registry Image Tags
+
+Run this yourself for milestone 20:
+
+```powershell
+docker images
+```
+
+Look for:
+
+```text
+localhost:5000/dockyard-api   milestone-20
+```
+
+That line means your local Docker image list knows about the registry-style tag.
+
+## Stop Local Registry
+
+```powershell
+docker compose -f compose.registry.yaml down
+```
+
+Stops the registry container but keeps the `dockyard_registry-data` named volume.
+
+Careful:
+
+```powershell
+docker compose -f compose.registry.yaml down -v
+```
+
+also deletes the registry volume, so pushed local-registry image data is removed.
 
 ## Check Backend Through Published Port
 

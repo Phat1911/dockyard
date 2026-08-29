@@ -1,0 +1,27 @@
+# Milestone 20: local Docker registry for image tag/push/pull practice.
+# Use with: docker compose -f compose.registry.yaml up -d
+#
+# Beginner note:
+# A registry stores built Docker images. It is different from Git, which stores
+# source code and Dockerfiles. This local registry is only for learning.
+name: dockyard-registry
+
+services:
+  registry:
+    # Milestone 20: registry:2 is Docker's official registry server image.
+    image: registry:2
+    container_name: dockyard-registry
+    # Milestone 20: publish the registry so your laptop Docker CLI can push/pull.
+    ports:
+      - "${REGISTRY_HOST_PORT:-5000}:5000"
+    # Milestone 20: bounded restart keeps registry crashes visible while learning.
+    restart: "on-failure:3"
+    # Milestone 20: store pushed image blobs in a named volume so they survive
+    # registry container replacement.
+    volumes:
+      - registry-data:/var/lib/registry
+
+volumes:
+  # Milestone 20: durable local registry image storage.
+  registry-data:
+    name: dockyard_registry-data

@@ -6,7 +6,7 @@ The app simulates a small deployment platform without controlling Docker Engine 
 
 ## Current Status
 
-This project is in progress. The current implementation is complete through milestone 19:
+This project is in progress. The current implementation is complete through milestone 20:
 
 - Minimal Fastify backend with `GET /health`.
 - React + Vite dashboard shell.
@@ -30,8 +30,9 @@ This project is in progress. The current implementation is complete through mile
 - Frontend and Nginx health checks are available for proxy-mode startup ordering.
 - Proxy mode splits Docker networking into public and private networks so Nginx/frontend cannot directly reach PostgreSQL or Redis.
 - Bounded restart policies retry crashed service processes without hiding repeated failures forever.
+- Local Docker registry override for practicing image tags, push, pull, and image inspection.
 
-Later milestones will add a local registry, database migrations, and a combined debugging lab.
+Later milestones will add database migrations and a combined debugging lab.
 
 ## Architecture
 
@@ -100,6 +101,7 @@ Dockyard deliberately does not implement:
 +-- compose.yaml                  Runtime-like base Compose stack
 +-- compose.dev.yaml              Development override with bind mounts
 +-- compose.proxy.yaml            Nginx reverse proxy override
++-- compose.registry.yaml         Local registry override for image push/pull practice
 +-- MILESTONE_16_DEBUGGING.md     Controlled Docker debugging exercises
 +-- COMMANDS.md                   Docker command notes
 +-- DockerFileCMD.md              Dockerfile instruction notes
@@ -387,6 +389,85 @@ Node, npm, Vite, and source files are useful while building.
 The running frontend container only needs Nginx and the files from dist/.
 ```
 
+## Local Registry
+
+Milestone 20 adds an opt-in local Docker registry:
+
+```powershell
+docker compose -f compose.registry.yaml up -d
+```
+
+It publishes:
+
+```text
+localhost:5000 -> registry container port 5000
+```
+
+Simple meaning:
+
+```text
+Your laptop Docker CLI can push images to localhost:5000.
+Your laptop Docker CLI can pull images back from localhost:5000.
+```
+
+The registry service uses:
+
+```yaml
+image: registry:2
+```
+
+That means:
+
+```text
+registry = Docker image name
+2        = image tag/version
+```
+
+The registry stores built Docker images. Git stores source code.
+
+Registry versus Git repo:
+
+```text
+Git repo  -> source files, Dockerfiles, Compose files, history of code changes
+Registry  -> built image artifacts that Docker can pull and run
+```
+
+Example flow:
+
+```text
+source code in Git
+-> docker build
+-> dockyard-api:dev image exists locally
+-> docker tag
+-> docker push localhost:5000/dockyard-api:milestone-20
+-> docker pull localhost:5000/dockyard-api:milestone-20
+```
+
+For this milestone, run these commands yourself so you can see the output:
+
+```powershell
+docker tag dockyard-api:dev localhost:5000/dockyard-api:milestone-20
+docker push localhost:5000/dockyard-api:milestone-20
+docker pull localhost:5000/dockyard-api:milestone-20
+docker images
+```
+
+The tag matters:
+
+```text
+localhost:5000/dockyard-api:milestone-20
+```
+
+Simple meaning:
+
+```text
+localhost:5000       -> which registry
+dockyard-api         -> which image name
+milestone-20         -> which version/label of the image
+```
+
+If you use the wrong tag, Docker may push or pull a different artifact than the one you intended. That is the core lesson of this milestone.
+
 ## Persistence Model
 
 PostgreSQL stores durable data in a Docker named volume:
@@ -555,6 +636,7 @@ Keep stress mode off unless you are deliberately observing resource usage.
 - Every Compose service has explicit CPU and memory limits.
 - Every base Compose service has a bounded `on-failure:3` restart policy.
 - Proxy-mode Nginx also has a bounded `on-failure:3` restart policy.
+- The local registry stores pushed image blobs in a named volume.
 - Runtime-like mode does not mount frontend/backend source folders into app containers.
 - In proxy mode, only Nginx is published to the host.
 - In proxy mode, Nginx and frontend are not attached to the private PostgreSQL/Redis network.
@@ -566,6 +648,5 @@ Keep stress mode off unless you are deliberately observing resource usage.
 
 Next milestones from `PLAN.md`:
 
-- Milestone 20: local registry.
 - Milestone 21: database migrations.
 - Milestone 22: debugging lab.
