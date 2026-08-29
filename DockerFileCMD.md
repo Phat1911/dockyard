@@ -73,6 +73,7 @@ copies files into:
 ```dockerfile
 COPY package*.json ./
 COPY src ./src
+COPY db/migrations ./db/migrations
 COPY --from=deps /app/node_modules ./node_modules
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 ```
@@ -97,6 +98,20 @@ means:
 ```text
 copy local src folder into /app/src inside the image
 ```
+
+Milestone 21 backend migration example:
+
+```dockerfile
+COPY db/migrations ./db/migrations
+```
+
+means:
+
+```text
+copy local migration SQL files into /app/db/migrations inside the image
+```
+
+That lets `docker compose exec backend npm run migrate` work from the backend container in runtime-like mode, where the backend does not use a source-code bind mount.
 
 Special multi-stage example:
 

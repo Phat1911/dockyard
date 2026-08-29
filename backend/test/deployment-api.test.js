@@ -17,6 +17,7 @@ function createDeploymentPool() {
               id: "21",
               name: params[0],
               status: "queued",
+              environment: params[1],
               created_at: new Date("2026-08-27T03:00:00.000Z"),
               updated_at: new Date("2026-08-27T03:00:00.000Z"),
             },
@@ -75,6 +76,7 @@ test("Milestone 8 create deployment endpoint persists before queueing", async ()
 
   assert.equal(response.statusCode, 202);
   assert.equal(response.json().deployment.status, "queued");
+  assert.equal(response.json().deployment.environment, "local");
   assert.equal(response.json().queued, true);
   assert.equal(JSON.parse(queueCalls[0].value).deploymentId, 21);
   assert.match(databasePool.queries[0].sql, /INSERT INTO deployments/);

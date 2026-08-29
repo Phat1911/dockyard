@@ -7,14 +7,14 @@ export const deploymentStatuses = [
 ];
 
 // Milestone 8: create durable deployment state before queueing Redis work.
-export async function createDeployment(pool, { name }) {
+export async function createDeployment(pool, { name, environment = "local" }) {
   const result = await pool.query(
     `
-      INSERT INTO deployments (name, status)
-      VALUES ($1, 'queued')
-      RETURNING id, name, status, created_at, updated_at
+      INSERT INTO deployments (name, status, environment)
+      VALUES ($1, 'queued', $2)
+      RETURNING id, name, status, environment, created_at, updated_at
     `,
-    [name]
+    [name, environment]
   );
 
   const deployment = result.rows[0];
@@ -29,7 +29,7 @@ export async function updateDeploymentStatus(pool, deploymentId, status) {
       UPDATE deployments
       SET status = $2, updated_at = now()
       WHERE id = $1
-      RETURNING id, name, status, created_at, updated_at
+      RETURNING id, name, status, environment, created_at, updated_at
     `,
     [deploymentId, status]
   );
@@ -58,7 +58,7 @@ export async function writeDeploymentLog(
 export async function listDeployments(pool) {
   const result = await pool.query(
     `
-      SELECT id, name, status, created_at, updated_at
+      SELECT id, name, status, environment, created_at, updated_at
       FROM deployments
       ORDER BY created_at DESC
     `
@@ -70,7 +70,7 @@ export async function listDeployments(pool) {
 export async function readDeploymentWithLogs(pool, deploymentId) {
   const deploymentResult = await pool.query(
     `
-      SELECT id, name, status, created_at, updated_at
+      SELECT id, name, status, environment, created_at, updated_at
       FROM deployments
       WHERE id = $1
     `,

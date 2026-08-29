@@ -696,6 +696,58 @@ Redis has no named volume, so its temporary queue state can disappear.
 PostgreSQL has a named volume, so deleting only the postgres container should not delete database rows.
 ```
 
+## Run Database Migrations
+
+```powershell
+docker compose exec backend npm run migrate
+```
+
+Milestone 21 runs the migration script from inside the backend container.
+
+Simple meaning:
+
+```text
+backend container runs npm run migrate
+migration code connects to PostgreSQL
+new migration files upgrade the existing schema in dockyard_postgres-data
+old deployment rows stay in the PostgreSQL volume
+```
+
+The migration runner records completed files in this table:
+
+```text
+schema_migrations
+```
+
+That tracking makes migrations idempotent, or safe to run again. If a migration file is already listed in `schema_migrations`, the next `npm run migrate` skips it.
+
+Check the tracking table:
+
+```powershell
+docker compose exec postgres psql -U dockyard -d dockyard -c "SELECT name, applied_at FROM schema_migrations ORDER BY name;"
+```
+
+Check the new column added by the milestone 21 migration:
+
+```powershell
+docker compose exec postgres psql -U dockyard -d dockyard -c "SELECT column_name FROM information_schema.columns WHERE table_name = 'deployments' AND column_name = 'environment';"
+```
+
+Simple meaning:
+
+```text
+PostgreSQL should show the environment column.
+Existing deployment rows should still be in the deployments table.
+```
+
+Milestone 21 warning:
+
+```text
+Do not use `docker compose down -v` for schema upgrades.
+```
+
+`docker compose down -v` deletes the PostgreSQL named volume. That resets durable database data instead of upgrading the existing schema.
+
 ## Stop Containers And Delete Volumes
 
 ```powershell

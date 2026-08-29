@@ -19,6 +19,7 @@ test("Milestone 8 creates durable deployment before Redis queueing", async () =>
               id: "12",
               name: params[0],
               status: "queued",
+              environment: params[1],
               created_at: new Date("2026-08-27T03:00:00.000Z"),
               updated_at: new Date("2026-08-27T03:00:00.000Z"),
             },
@@ -46,7 +47,9 @@ test("Milestone 8 creates durable deployment before Redis queueing", async () =>
 
   assert.equal(deployment.id, "12");
   assert.equal(deployment.status, "queued");
+  assert.equal(deployment.environment, "local");
   assert.match(queries[0].sql, /INSERT INTO deployments/);
+  assert.match(queries[0].sql, /environment/);
   assert.match(queries[1].sql, /INSERT INTO deployment_logs/);
 });
 

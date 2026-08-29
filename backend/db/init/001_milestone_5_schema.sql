@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS deployments (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   name TEXT NOT NULL,
   status TEXT NOT NULL,
+  -- Milestone 21: fresh databases include the same column added by migration.
+  environment TEXT NOT NULL DEFAULT 'local',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

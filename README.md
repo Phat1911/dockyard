@@ -6,7 +6,7 @@ The app simulates a small deployment platform without controlling Docker Engine 
 
 ## Current Status
 
-This project is in progress. The current implementation is complete through milestone 20:
+This project is in progress. The current implementation is complete through milestone 21:
 
 - Minimal Fastify backend with `GET /health`.
 - React + Vite dashboard shell.
@@ -31,8 +31,9 @@ This project is in progress. The current implementation is complete through mile
 - Proxy mode splits Docker networking into public and private networks so Nginx/frontend cannot directly reach PostgreSQL or Redis.
 - Bounded restart policies retry crashed service processes without hiding repeated failures forever.
 - Local Docker registry override for practicing image tags, push, pull, and image inspection.
+- Database migrations upgrade existing PostgreSQL volumes without deleting durable data.
 
-Later milestones will add database migrations and a combined debugging lab.
+Later milestones will add a combined debugging lab.
 
 ## Architecture
 
@@ -86,6 +87,7 @@ Dockyard deliberately does not implement:
 .
 +-- backend/
 |   +-- db/init/                  PostgreSQL first-run schema
+|   +-- db/migrations/            PostgreSQL upgrades for existing volumes
 |   +-- src/                      Fastify API, queue, worker, database helpers
 |   +-- test/                     Node test runner tests
 |   +-- Dockerfile                Multi-stage api/worker image
@@ -480,6 +482,45 @@ Deployment records, deployment logs, and worker heartbeat rows are stored there.
 
 Redis is temporary queue/cache state. It is not persisted in this project yet. If Redis loses queued jobs, PostgreSQL remains the durable source of truth.
 
+## Database Migrations
+
+Milestone 21 adds database migrations for schema changes after data already exists.
+
+Simple meaning:
+
+```text
+init SQL creates tables only when the PostgreSQL volume is fresh.
+migrations upgrade tables that already exist inside dockyard_postgres-data.
+```
+
+Run migrations from the backend container:
+
+```powershell
+docker compose exec backend npm run migrate
+```
+
+The migration runner records completed files in:
+
+```text
+schema_migrations
+```
+
+That tracking table makes migrations idempotent, which means they are safe to run again. On the second run, already-applied migration files are skipped instead of changing the same schema twice.
+
+Do not use `docker compose down -v` for schema upgrades. That command deletes the PostgreSQL named volume, so it resets durable local database data instead of upgrading it.
+
+Milestone 21 adds this explicit schema change:
+
+```text
+deployments.environment
+```
+
+Existing deployment rows keep their old values and receive:
+
+```text
+environment = local
+```
+
 ## Logging Model
 
 Dockyard uses two kinds of logs:
@@ -637,6 +678,7 @@ Keep stress mode off unless you are deliberately observing resource usage.
 - Every base Compose service has a bounded `on-failure:3` restart policy.
 - Proxy-mode Nginx also has a bounded `on-failure:3` restart policy.
 - The local registry stores pushed image blobs in a named volume.
+- Database schema changes use `npm run migrate` instead of deleting `dockyard_postgres-data`.
 - Runtime-like mode does not mount frontend/backend source folders into app containers.
 - In proxy mode, only Nginx is published to the host.
 - In proxy mode, Nginx and frontend are not attached to the private PostgreSQL/Redis network.
@@ -648,5 +690,4 @@ Keep stress mode off unless you are deliberately observing resource usage.
 
 Next milestones from `PLAN.md`:
 
-- Milestone 21: database migrations.
 - Milestone 22: debugging lab.

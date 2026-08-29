@@ -13,6 +13,8 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
 COPY src ./src
+# Milestone 21: runtime images include migration SQL for npm run migrate.
+COPY db/migrations ./db/migrations
 # Milestone 11: the running API/worker process does not need root privileges.
 USER node
 
